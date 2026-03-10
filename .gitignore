@@ -1,0 +1,13 @@
+# Universal
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.idea/
+
+# Go
+*.exe
+*.test
+vendor/
+*.out
