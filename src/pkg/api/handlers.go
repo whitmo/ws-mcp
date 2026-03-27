@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/whitmo/ws-mcp/src/internal/hub"
+	"github.com/whitmo/ws-mcp/src/internal/store"
 	"github.com/whitmo/ws-mcp/src/internal/types"
 )
 
@@ -16,6 +17,10 @@ var upgrader = websocket.Upgrader{
 
 func (r *Router) SetHub(h *hub.Hub) {
 	r.hub = h
+}
+
+func (r *Router) SetFileStore(fs *store.FileStore) {
+	r.fileStore = fs
 }
 
 // Add hub field to Router struct
@@ -52,6 +57,13 @@ func (r *Router) handleIngest() http.HandlerFunc {
 		// Store Event
 		if r.store != nil {
 			r.store.Push(event)
+		}
+
+		// Persist to durable file store
+		if r.fileStore != nil {
+			if err := r.fileStore.Append(event); err != nil {
+				log.Printf("file store append error: %v", err)
+			}
 		}
 
 		// Broadcast Event
