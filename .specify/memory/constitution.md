@@ -1,50 +1,61 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report:
+- Version change: 1.0.0 → 1.1.0
+- List of modified principles (Added):
+    - VI. Test-Driven Documentation (TDD)
+    - VII. Disposable Modularity
+    - VIII. Deep Modules & Shallow Interfaces
+    - IX. Incremental Atomic Progress
+    - X. Wabi-sabi (Imperfection & Flow)
+- Added sections: None
+- Removed sections: None
+- Templates requiring updates:
+    - .specify/templates/plan-template.md (✅ updated)
+    - .specify/templates/spec-template.md (✅ updated)
+    - .specify/templates/tasks-template.md (✅ updated)
+- Follow-up TODOs: Ensure TDD workflow is reflected in Task generation.
+-->
+# WS-MCP Bridge Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Event-Centric Architecture
+All agent interactions (Ralph, MultiClaude, System) MUST be encapsulated as standard JSON events. Events are the single source of truth for system state and inter-agent coordination.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. Real-time Observability
+The bridge MUST broadcast ingested events over WebSocket with minimal latency (p95 < 150ms). Developers and agents should have immediate visibility into the event stream without polling.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. MCP-First Interoperability
+Every bridge capability MUST be exposed via a structured Model Context Protocol (MCP) tool interface. Querying, filtering, and acknowledging events should be as natural for an AI as calling a function.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. Bounded Resilience
+The system MUST protect its own stability through bounded in-memory storage (Ring Buffers). Older events are dropped to ensure current events flow freely. Performance targets for ingest and broadcast are non-negotiable.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. Simple Protocol Handshakes
+Avoid proprietary or complex transports. Use standard HTTP for ingest and WebSocket for broadcast. Keep the handshake and message envelopes minimal, human-readable, and machine-parsable.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+### VI. Test-Driven Documentation (TDD)
+A feature is not ready for implementation until its tests and documentation exist and are failing. Documentation MUST define the intent, and tests MUST verify the contract before a single line of application logic is written.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### VII. Disposable Modularity
+Design for the dumpster. Components MUST be highly modular with narrow, well-defined interfaces so they can be completely replaced or thrown away without ripple effects. Avoid "marriage" to any specific implementation.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+### VIII. Deep Modules & Shallow Interfaces
+Complexity is a tax. Follow *A Philosophy of Software Design*: build "deep" modules that hide significant internal complexity behind a small, simple, and intuitive surface area.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### IX. Incremental Atomic Progress
+Large changes are risks. Deliver value through small, frequent Pull Requests that are atomic and self-contained. Every PR MUST leave the codebase in a deployable, passing state.
+
+### X. Wabi-sabi (Imperfection & Flow)
+Embrace the beauty of the imperfect, impermanent, and incomplete. Prioritize shipping functional, "good enough" code that solves the immediate problem over chasing theoretical perfection. Refactor when the friction demands it, not before.
+
+## Operational Standards
+The Go service must maintain a low memory footprint (< 50MB default) and support graceful shutdown within 5 seconds to ensure clean service rotation in development and production environments.
+
+## Security & Performance
+All event data is considered trusted within the local network (no auth required for MVP), but all inputs MUST be validated against the event schema before being broadcasted or stored to prevent system corruption.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
+This constitution supersedes all other documentation. Amendments require a version increment and an update to the `Sync Impact Report` to maintain alignment across all project templates and artifacts.
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
-
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.1.0 | **Ratified**: 2026-03-08 | **Last Amended**: 2026-03-08

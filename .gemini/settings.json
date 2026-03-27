@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "ws-mcp": {
+      "command": "ws-mcp-bridge",
+      "args": [
+        "--stdio"
+      ]
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "worker.started": {
+      "command": "./scripts/multiclaude-hook.sh worker.started $WORKER_NAME",
+      "description": "Notify ws-mcp bridge when a worker starts"
+    },
+    "worker.committed": {
+      "command": "./scripts/multiclaude-hook.sh worker.committed $WORKER_NAME '{\"message\": \"$COMMIT_MSG\"}'",
+      "description": "Notify ws-mcp bridge when a worker commits"
+    },
+    "worker.pushed": {
+      "command": "./scripts/multiclaude-hook.sh worker.pushed $WORKER_NAME '{\"branch\": \"$BRANCH\"}'",
+      "description": "Notify ws-mcp bridge when a worker pushes"
+    },
+    "worker.completed": {
+      "command": "./scripts/multiclaude-hook.sh worker.completed $WORKER_NAME '{\"pr_url\": \"$PR_URL\"}'",
+      "description": "Notify ws-mcp bridge when a worker completes"
+    }
+  },
+  "_comment": "Copy relevant hooks into your multiclaude or Claude Code settings. Environment variables like $WORKER_NAME are provided by multiclaude at hook invocation time."
+}

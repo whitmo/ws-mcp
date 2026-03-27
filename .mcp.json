@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "ralph-orchestrator": {
+      "command": "ralph",
+      "args": ["mcp", "serve"],
+      "env": {}
+    },
+    "ws-mcp": {
+      "command": "ws-mcp-bridge",
+      "args": ["--stdio"]
+    }
+  }
+}
