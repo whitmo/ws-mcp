@@ -76,6 +76,42 @@ Add to your Codex MCP config:
 ./scripts/mcp-serve.sh
 ```
 
+## Ralph Integration
+
+The bridge integrates with [Ralph Orchestrator](https://github.com/mikeyobrien/ralph-orchestrator) via lifecycle hooks. When ralph runs, hook events (loop start/complete, iteration start, errors, plan creation) are automatically POSTed to the bridge.
+
+### Setup
+
+The `ralph.yml` in this repo already has hooks configured. Just ensure the bridge is running:
+
+```bash
+./bridge &
+ralph run
+```
+
+### Standalone usage
+
+You can also fire events manually:
+
+```bash
+# Basic event
+./scripts/ralph-hook.sh loop.start
+
+# With custom source and payload
+./scripts/ralph-hook.sh iteration.complete ralph '{"iteration": 3, "hat": "builder"}'
+```
+
+Environment variables:
+- `WS_MCP_URL` — Bridge base URL (default: `http://localhost:8080`)
+
+### Test the integration
+
+```bash
+./scripts/test-ralph-hook.sh
+```
+
+This builds the bridge, starts it, posts a test event via `ralph-hook.sh`, and verifies it arrives via the `/rpc` `events.latest` query.
+
 ## Smoke Test
 
 Run the round-trip smoke test (requires the bridge port to be free):
