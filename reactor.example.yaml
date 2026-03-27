@@ -1,0 +1,14 @@
+rules:
+  - name: review-trigger
+    source: multiclaude
+    type: review.requested
+    command: "multiclaude review $PR"
+
+  - name: error-alert
+    source: ralph
+    type: "error.*"
+    post_url: "http://hooks.example.com/alert"
+
+  - name: task-log
+    type: "task.*"
+    command: "echo 'Task event: $TYPE from $SOURCE'"
