@@ -39,6 +39,76 @@ const (
 	ErrCodeInternal   = -32603
 )
 
+// ToolDef describes an MCP tool exposed via tools/list.
+type ToolDef struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	InputSchema any    `json:"inputSchema"`
+}
+
+// toolDefs returns the MCP tool definitions for all 4 tools.
+func toolDefs() []ToolDef {
+	return []ToolDef{
+		{
+			Name:        "events_latest",
+			Description: "Get the most recent events from the event buffer",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"limit": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of events to return (1-100, default 10)",
+					},
+				},
+			},
+		},
+		{
+			Name:        "events_filter",
+			Description: "Filter events by source (e.g. ralph, multiclaude, system)",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"source": map[string]any{
+						"type":        "string",
+						"description": "Event source to filter by",
+					},
+				},
+			},
+		},
+		{
+			Name:        "events_ack",
+			Description: "Acknowledge an event by ID",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id": map[string]any{
+						"type":        "string",
+						"description": "Event ID to acknowledge",
+					},
+					"acked_by": map[string]any{
+						"type":        "string",
+						"description": "Identifier of the acknowledging agent",
+					},
+				},
+				"required": []string{"id"},
+			},
+		},
+		{
+			Name:        "report_summary",
+			Description: "Get a summary report of events within a time window",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"window": map[string]any{
+						"type":        "integer",
+						"description": "Time window in minutes (default 60)",
+					},
+				},
+			},
+		},
+	}
+}
+
 // Server dispatches JSON-RPC 2.0 calls to MCP handlers.
 type Server struct {
 	handler *Handler
@@ -49,23 +119,105 @@ func NewServer(h *Handler) *Server {
 }
 
 // Dispatch routes a JSON-RPC request to the appropriate handler.
+// Supports both MCP protocol methods and direct tool methods.
 func (s *Server) Dispatch(ctx context.Context, req *Request) *Response {
-	resp := &Response{JSONRPC: "2.0", ID: req.ID}
-
 	switch req.Method {
+	// MCP protocol methods
+	case "initialize":
+		return s.handleInitialize(req)
+	case "notifications/initialized":
+		return nil // notification, no response
+	case "tools/list":
+		return s.handleToolsList(req)
+	case "tools/call":
+		return s.handleToolsCall(ctx, req)
+
+	// Direct tool methods (existing)
 	case "events.latest":
-		resp = s.handleEventsLatest(ctx, req)
+		return s.handleEventsLatest(ctx, req)
 	case "events.filter":
-		resp = s.handleEventsFilter(ctx, req)
+		return s.handleEventsFilter(ctx, req)
 	case "events.ack":
-		resp = s.handleEventsAck(ctx, req)
+		return s.handleEventsAck(ctx, req)
 	case "report.summary":
-		resp = s.handleReportSummary(ctx, req)
+		return s.handleReportSummary(ctx, req)
 	default:
-		resp.Error = &Error{Code: ErrCodeNoMethod, Message: fmt.Sprintf("method not found: %s", req.Method)}
+		return &Response{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &Error{Code: ErrCodeNoMethod, Message: fmt.Sprintf("method not found: %s", req.Method)},
+		}
+	}
+}
+
+func (s *Server) handleInitialize(req *Request) *Response {
+	return &Response{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]any{
+			"protocolVersion": "2024-11-05",
+			"capabilities":    map[string]any{"tools": map[string]any{}},
+			"serverInfo":      map[string]any{"name": "ws-mcp", "version": "0.1.0"},
+		},
+	}
+}
+
+func (s *Server) handleToolsList(req *Request) *Response {
+	return &Response{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result:  map[string]any{"tools": toolDefs()},
+	}
+}
+
+func (s *Server) handleToolsCall(ctx context.Context, req *Request) *Response {
+	var params struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if req.Params != nil {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "invalid params"}}
+		}
 	}
 
-	return resp
+	// Build an inner request with the arguments as params, dispatching by tool name
+	inner := &Request{JSONRPC: "2.0", Params: params.Arguments, ID: req.ID}
+
+	var innerResp *Response
+	switch params.Name {
+	case "events_latest":
+		innerResp = s.handleEventsLatest(ctx, inner)
+	case "events_filter":
+		innerResp = s.handleEventsFilter(ctx, inner)
+	case "events_ack":
+		innerResp = s.handleEventsAck(ctx, inner)
+	case "report_summary":
+		innerResp = s.handleReportSummary(ctx, inner)
+	default:
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeNoMethod, Message: fmt.Sprintf("unknown tool: %s", params.Name)}}
+	}
+
+	// If the inner handler returned an error, propagate it
+	if innerResp.Error != nil {
+		return innerResp
+	}
+
+	// Wrap result in MCP tools/call content format
+	resultJSON, err := json.Marshal(innerResp.Result)
+	if err != nil {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: "failed to marshal result"}}
+	}
+
+	return &Response{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]any{
+			"content": []map[string]string{
+				{"type": "text", "text": string(resultJSON)},
+			},
+		},
+	}
 }
 
 func (s *Server) handleEventsLatest(ctx context.Context, req *Request) *Response {
@@ -172,6 +324,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	resp := s.Dispatch(r.Context(), &req)
 
+	if resp == nil {
+		// Notification — no response per JSON-RPC 2.0
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(resp)
@@ -219,7 +377,9 @@ func (s *Server) ServeIO(ctx context.Context, in io.Reader, out io.Writer) error
 		}
 
 		resp := s.Dispatch(ctx, &req)
-		encoder.Encode(resp)
+		if resp != nil {
+			encoder.Encode(resp)
+		}
 	}
 
 	return scanner.Err()
