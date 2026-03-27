@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/whitmo/ws-mcp/src/internal/store"
@@ -43,6 +45,49 @@ func (h *Handler) HandleAck(ctx context.Context, id string, ackedBy string) erro
 	// Note: Broadcasting the acked state over WS (T026) would require h.hub.Broadcast(event)
 	// We'll leave the WS broadcast out of this minimal handler for now, or assume
 	// clients query for updated state.
+}
+
+func (h *Handler) HandleRequest(ctx context.Context, event types.Event) (string, error) {
+	if event.Type != "request" {
+		return "", errors.New("event type must be 'request'")
+	}
+	if event.ID == "" {
+		return "", errors.New("event ID is required")
+	}
+	h.store.Push(event)
+	return event.ID, nil
+}
+
+func (h *Handler) HandleAwaitReply(ctx context.Context, requestID string, timeoutMs int) (*types.Event, error) {
+	if requestID == "" {
+		return nil, errors.New("request_id is required")
+	}
+
+	// Verify the request event exists
+	if _, found := h.store.FindByID(requestID); !found {
+		return nil, fmt.Errorf("request event %q not found", requestID)
+	}
+
+	if timeoutMs <= 0 {
+		timeoutMs = 30000
+	}
+
+	deadline := time.After(time.Duration(timeoutMs) * time.Millisecond)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline:
+			return nil, fmt.Errorf("timeout waiting for reply to %q after %dms", requestID, timeoutMs)
+		case <-ticker.C:
+			if reply, found := h.store.FindByInReplyTo(requestID); found {
+				return &reply, nil
+			}
+		}
+	}
 }
 
 // SummaryResult holds the report.summary response.
