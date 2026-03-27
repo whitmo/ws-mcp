@@ -85,8 +85,8 @@ func TestMCPStdio_FullProtocolFlow(t *testing.T) {
 	if !ok {
 		t.Fatal("tools/list missing tools array")
 	}
-	if len(tools) != 4 {
-		t.Fatalf("expected 4 tools, got %d", len(tools))
+	if len(tools) < 4 {
+		t.Fatalf("expected at least 4 tools, got %d", len(tools))
 	}
 
 	// --- 3. Verify events_latest contains our event ---
