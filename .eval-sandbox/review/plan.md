@@ -1,13 +1,16 @@
-# Review Plan: bright-hawk worker progress
+# Review Plan: silly-fox + brave-raccoon Workers
 
-## Step 1: Primary Pass (COMPLETE)
-Primary adversarial review of bright-hawk worktree and feature branch state.
-Finding: bright-hawk has done zero work. All 4 tasks remain open on the feature branch.
+## Step 1: Primary Pass (current)
+- Identify scope, review in-progress code from both workers
+- Flag cross-worker dependency risks
+- Check spec conformance
 
-## Step 2: Deep Analysis — Worker Setup Failure
-Investigate why bright-hawk branched from origin/main instead of 001-websocket-mcp-bridge.
-Check multiclaude configuration, worker logs, and determine if this is a systemic issue
-that would affect re-running the worker.
+## Step 2: Deep Analysis — Cross-Worker Interface Contract
+- Once both workers have committed, verify --mode mcp / stdio transport interface matches
+- Run go test ./... in both worktrees after commits
+- Check JSON-RPC dispatch wiring matches spec methods
+- Verify smoke-test.sh can exercise the bridge end-to-end
 
-## Step 3: Synthesis and Completion
-Compile final review with actionable next steps.
+## Final: Synthesis and Completion
+- Consolidate findings, assess merge readiness
+- Emit REVIEW_COMPLETE or REQUEST_CHANGES
