@@ -4,6 +4,13 @@
       "command": "ralph",
       "args": ["mcp", "serve"],
       "env": {}
+    },
+    "ws-mcp": {
+      "command": "go",
+      "args": ["run", "./src/cmd/bridge", "--mode", "mcp"],
+      "env": {
+        "WS_MCP_PORT": "8080"
+      }
     }
   }
 }
