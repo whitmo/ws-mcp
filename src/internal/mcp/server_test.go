@@ -225,14 +225,15 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatal("missing tools array")
 	}
-	if len(tools) != 4 {
-		t.Fatalf("expected 4 tools, got %d", len(tools))
+	if len(tools) != 6 {
+		t.Fatalf("expected 6 tools, got %d", len(tools))
 	}
 
 	// Verify each tool has required fields
 	expectedNames := map[string]bool{
 		"events_latest": false, "events_filter": false,
 		"events_ack": false, "report_summary": false,
+		"events_request": false, "events_await_reply": false,
 	}
 	for _, raw := range tools {
 		tool := raw.(map[string]any)
@@ -252,6 +253,72 @@ func TestMCP_ToolsList(t *testing.T) {
 		if !found {
 			t.Fatalf("tool %s not found in list", name)
 		}
+	}
+}
+
+func TestDispatch_EventsRequest(t *testing.T) {
+	srv, _ := newTestServer()
+
+	resp := doRPC(t, srv, "events.request", map[string]any{
+		"id":     "req-1",
+		"source": "ralph",
+	})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	b, _ := json.Marshal(resp.Result)
+	var result map[string]string
+	json.Unmarshal(b, &result)
+	if result["request_id"] != "req-1" {
+		t.Fatalf("expected request_id req-1, got %s", result["request_id"])
+	}
+}
+
+func TestDispatch_EventsRequest_MissingID(t *testing.T) {
+	srv, _ := newTestServer()
+
+	resp := doRPC(t, srv, "events.request", map[string]any{
+		"source": "ralph",
+	})
+	if resp.Error == nil {
+		t.Fatal("expected error for missing id")
+	}
+}
+
+func TestDispatch_EventsAwaitReply(t *testing.T) {
+	srv, rb := newTestServer()
+
+	// Store request event
+	rb.Push(types.Event{ID: "req-1", Source: types.SourceRalph, Type: "request", Ts: time.Now()})
+
+	// Store reply event
+	rb.Push(types.Event{ID: "reply-1", Source: types.SourceSystem, Type: "response", InReplyTo: "req-1", Ts: time.Now()})
+
+	resp := doRPC(t, srv, "events.await_reply", map[string]any{
+		"request_id": "req-1",
+		"timeout_ms": 1000,
+	})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	b, _ := json.Marshal(resp.Result)
+	var event types.Event
+	json.Unmarshal(b, &event)
+	if event.ID != "reply-1" {
+		t.Fatalf("expected reply-1, got %s", event.ID)
+	}
+}
+
+func TestDispatch_EventsAwaitReply_MissingRequestID(t *testing.T) {
+	srv, _ := newTestServer()
+
+	resp := doRPC(t, srv, "events.await_reply", map[string]any{
+		"timeout_ms": 100,
+	})
+	if resp.Error == nil {
+		t.Fatal("expected error for missing request_id")
 	}
 }
 
