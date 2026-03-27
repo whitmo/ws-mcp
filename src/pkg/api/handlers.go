@@ -6,7 +6,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/whitmo/ws-mcp/src/internal/hub"
-	"github.com/whitmo/ws-mcp/src/internal/store"
 	"github.com/whitmo/ws-mcp/src/internal/types"
 )
 

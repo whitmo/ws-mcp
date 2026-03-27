@@ -21,7 +21,7 @@ func TestIngestToBroadcast(t *testing.T) {
 	defer h.Stop()
 
 	router := api.NewRouter(rb)
-	// TODO: r.SetHub(h) in implementation
+	router.SetHub(h)
 
 	server := httptest.NewServer(router.SetupRoutes())
 	defer server.Close()
