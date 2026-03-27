@@ -165,6 +165,232 @@ func TestDispatch_ReportSummary(t *testing.T) {
 	}
 }
 
+func TestMCP_Initialize(t *testing.T) {
+	srv, _ := newTestServer()
+
+	resp := doRPC(t, srv, "initialize", nil)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	b, _ := json.Marshal(resp.Result)
+	var result map[string]any
+	json.Unmarshal(b, &result)
+
+	if result["protocolVersion"] != "2024-11-05" {
+		t.Fatalf("expected protocolVersion 2024-11-05, got %v", result["protocolVersion"])
+	}
+	serverInfo, ok := result["serverInfo"].(map[string]any)
+	if !ok {
+		t.Fatal("missing serverInfo")
+	}
+	if serverInfo["name"] != "ws-mcp" {
+		t.Fatalf("expected server name ws-mcp, got %v", serverInfo["name"])
+	}
+	if serverInfo["version"] != "0.1.0" {
+		t.Fatalf("expected version 0.1.0, got %v", serverInfo["version"])
+	}
+	caps, ok := result["capabilities"].(map[string]any)
+	if !ok {
+		t.Fatal("missing capabilities")
+	}
+	if _, ok := caps["tools"]; !ok {
+		t.Fatal("missing tools capability")
+	}
+}
+
+func TestMCP_NotificationsInitialized(t *testing.T) {
+	srv, _ := newTestServer()
+
+	req := &Request{JSONRPC: "2.0", Method: "notifications/initialized", ID: nil}
+	resp := srv.Dispatch(context.Background(), req)
+	if resp != nil {
+		t.Fatalf("expected nil response for notification, got %+v", resp)
+	}
+}
+
+func TestMCP_ToolsList(t *testing.T) {
+	srv, _ := newTestServer()
+
+	resp := doRPC(t, srv, "tools/list", nil)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	b, _ := json.Marshal(resp.Result)
+	var result map[string]any
+	json.Unmarshal(b, &result)
+
+	tools, ok := result["tools"].([]any)
+	if !ok {
+		t.Fatal("missing tools array")
+	}
+	if len(tools) != 4 {
+		t.Fatalf("expected 4 tools, got %d", len(tools))
+	}
+
+	// Verify each tool has required fields
+	expectedNames := map[string]bool{
+		"events_latest": false, "events_filter": false,
+		"events_ack": false, "report_summary": false,
+	}
+	for _, raw := range tools {
+		tool := raw.(map[string]any)
+		name := tool["name"].(string)
+		if _, ok := expectedNames[name]; !ok {
+			t.Fatalf("unexpected tool: %s", name)
+		}
+		expectedNames[name] = true
+		if tool["description"] == nil || tool["description"] == "" {
+			t.Fatalf("tool %s missing description", name)
+		}
+		if tool["inputSchema"] == nil {
+			t.Fatalf("tool %s missing inputSchema", name)
+		}
+	}
+	for name, found := range expectedNames {
+		if !found {
+			t.Fatalf("tool %s not found in list", name)
+		}
+	}
+}
+
+func TestMCP_ToolsCall_EventsLatest(t *testing.T) {
+	srv, rb := newTestServer()
+	seedEvents(rb)
+
+	resp := doRPC(t, srv, "tools/call", map[string]any{
+		"name":      "events_latest",
+		"arguments": map[string]any{"limit": 2},
+	})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	b, _ := json.Marshal(resp.Result)
+	var result map[string]any
+	json.Unmarshal(b, &result)
+
+	content, ok := result["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("expected content array with 1 element, got %v", result["content"])
+	}
+	item := content[0].(map[string]any)
+	if item["type"] != "text" {
+		t.Fatalf("expected type text, got %v", item["type"])
+	}
+
+	// The text should be valid JSON containing events
+	var events []types.Event
+	if err := json.Unmarshal([]byte(item["text"].(string)), &events); err != nil {
+		t.Fatalf("failed to parse text as events: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+}
+
+func TestMCP_ToolsCall_UnknownTool(t *testing.T) {
+	srv, _ := newTestServer()
+
+	resp := doRPC(t, srv, "tools/call", map[string]any{
+		"name":      "nonexistent",
+		"arguments": map[string]any{},
+	})
+	if resp.Error == nil {
+		t.Fatal("expected error for unknown tool")
+	}
+	if resp.Error.Code != ErrCodeNoMethod {
+		t.Fatalf("expected method not found code, got %d", resp.Error.Code)
+	}
+}
+
+func TestMCP_ToolsCall_EventsAck(t *testing.T) {
+	srv, rb := newTestServer()
+	seedEvents(rb)
+
+	resp := doRPC(t, srv, "tools/call", map[string]any{
+		"name":      "events_ack",
+		"arguments": map[string]any{"id": "e1", "acked_by": "mcp-client"},
+	})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	// Verify ack took effect
+	events := rb.Latest(100)
+	for _, e := range events {
+		if e.ID == "e1" {
+			if !e.Acked || e.AckedBy != "mcp-client" {
+				t.Fatalf("expected e1 acked by mcp-client, got acked=%v by=%s", e.Acked, e.AckedBy)
+			}
+			return
+		}
+	}
+	t.Fatal("event e1 not found")
+}
+
+func TestMCP_Stdio_FullHandshake(t *testing.T) {
+	srv, rb := newTestServer()
+	seedEvents(rb)
+
+	// Simulate a full MCP handshake: initialize -> notifications/initialized -> tools/list -> tools/call
+	input := `{"jsonrpc":"2.0","method":"initialize","id":1}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","method":"tools/list","id":2}
+{"jsonrpc":"2.0","method":"tools/call","params":{"name":"events_latest","arguments":{"limit":1}},"id":3}
+`
+	in := strings.NewReader(input)
+	var out bytes.Buffer
+
+	err := srv.ServeIO(context.Background(), in, &out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	// Should get 3 responses (notifications/initialized produces no output)
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 response lines, got %d: %s", len(lines), out.String())
+	}
+
+	// Verify initialize response
+	var resp1 Response
+	json.Unmarshal([]byte(lines[0]), &resp1)
+	if resp1.Error != nil {
+		t.Fatalf("initialize error: %v", resp1.Error)
+	}
+
+	// Verify tools/list response
+	var resp2 Response
+	json.Unmarshal([]byte(lines[1]), &resp2)
+	if resp2.Error != nil {
+		t.Fatalf("tools/list error: %v", resp2.Error)
+	}
+
+	// Verify tools/call response
+	var resp3 Response
+	json.Unmarshal([]byte(lines[2]), &resp3)
+	if resp3.Error != nil {
+		t.Fatalf("tools/call error: %v", resp3.Error)
+	}
+}
+
+func TestMCP_HTTP_NotificationNoContent(t *testing.T) {
+	srv, _ := newTestServer()
+
+	body := `{"jsonrpc":"2.0","method":"notifications/initialized"}`
+	req := httptest.NewRequest(http.MethodPost, "/rpc", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for notification, got %d", w.Code)
+	}
+}
+
 func TestDispatch_MethodNotFound(t *testing.T) {
 	srv, _ := newTestServer()
 
