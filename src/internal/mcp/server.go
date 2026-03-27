@@ -8,6 +8,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
+
+	"github.com/whitmo/ws-mcp/src/internal/types"
 )
 
 // JSON-RPC 2.0 types
@@ -106,6 +109,50 @@ func toolDefs() []ToolDef {
 				},
 			},
 		},
+		{
+			Name:        "events_request",
+			Description: "Send a request event and get its ID for awaiting a reply",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id": map[string]any{
+						"type":        "string",
+						"description": "Unique event ID",
+					},
+					"source": map[string]any{
+						"type":        "string",
+						"description": "Event source (e.g. ralph, multiclaude, system)",
+					},
+					"payload": map[string]any{
+						"type":        "object",
+						"description": "Event payload",
+					},
+					"reply_to": map[string]any{
+						"type":        "string",
+						"description": "Optional: ID of the event this request is directed to",
+					},
+				},
+				"required": []string{"id", "source"},
+			},
+		},
+		{
+			Name:        "events_await_reply",
+			Description: "Poll for a reply to a previously sent request event",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"request_id": map[string]any{
+						"type":        "string",
+						"description": "ID of the request event to await a reply for",
+					},
+					"timeout_ms": map[string]any{
+						"type":        "integer",
+						"description": "Timeout in milliseconds (default 30000)",
+					},
+				},
+				"required": []string{"request_id"},
+			},
+		},
 	}
 }
 
@@ -141,6 +188,10 @@ func (s *Server) Dispatch(ctx context.Context, req *Request) *Response {
 		return s.handleEventsAck(ctx, req)
 	case "report.summary":
 		return s.handleReportSummary(ctx, req)
+	case "events.request":
+		return s.handleEventsRequest(ctx, req)
+	case "events.await_reply":
+		return s.handleEventsAwaitReply(ctx, req)
 	default:
 		return &Response{
 			JSONRPC: "2.0",
@@ -194,6 +245,10 @@ func (s *Server) handleToolsCall(ctx context.Context, req *Request) *Response {
 		innerResp = s.handleEventsAck(ctx, inner)
 	case "report_summary":
 		innerResp = s.handleReportSummary(ctx, inner)
+	case "events_request":
+		innerResp = s.handleEventsRequest(ctx, inner)
+	case "events_await_reply":
+		innerResp = s.handleEventsAwaitReply(ctx, inner)
 	default:
 		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeNoMethod, Message: fmt.Sprintf("unknown tool: %s", params.Name)}}
 	}
@@ -290,6 +345,62 @@ func (s *Server) handleReportSummary(ctx context.Context, req *Request) *Respons
 		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
 	}
 	return &Response{JSONRPC: "2.0", ID: req.ID, Result: summary}
+}
+
+func (s *Server) handleEventsRequest(ctx context.Context, req *Request) *Response {
+	var params struct {
+		ID      string         `json:"id"`
+		Source  string         `json:"source"`
+		Payload map[string]any `json:"payload"`
+		ReplyTo string         `json:"reply_to"`
+	}
+	if req.Params != nil {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "invalid params"}}
+		}
+	}
+	if params.ID == "" {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "id is required"}}
+	}
+	if params.Source == "" {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "source is required"}}
+	}
+
+	event := types.Event{
+		ID:      params.ID,
+		Source:  types.EventSource(params.Source),
+		Type:    "request",
+		Ts:      time.Now(),
+		Payload: params.Payload,
+		ReplyTo: params.ReplyTo,
+	}
+
+	eventID, err := s.handler.HandleRequest(ctx, event)
+	if err != nil {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
+	}
+	return &Response{JSONRPC: "2.0", ID: req.ID, Result: map[string]string{"request_id": eventID}}
+}
+
+func (s *Server) handleEventsAwaitReply(ctx context.Context, req *Request) *Response {
+	var params struct {
+		RequestID string `json:"request_id"`
+		TimeoutMs int    `json:"timeout_ms"`
+	}
+	if req.Params != nil {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "invalid params"}}
+		}
+	}
+	if params.RequestID == "" {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "request_id is required"}}
+	}
+
+	reply, err := s.handler.HandleAwaitReply(ctx, params.RequestID, params.TimeoutMs)
+	if err != nil {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
+	}
+	return &Response{JSONRPC: "2.0", ID: req.ID, Result: reply}
 }
 
 // ServeHTTP handles JSON-RPC over HTTP POST.

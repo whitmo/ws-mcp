@@ -49,6 +49,30 @@ func (r *RingBuffer) Latest(limit int) []types.Event {
 	return result
 }
 
+func (r *RingBuffer) FindByID(id string) (types.Event, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for i := len(r.events) - 1; i >= 0; i-- {
+		if r.events[i].ID == id {
+			return r.events[i], true
+		}
+	}
+	return types.Event{}, false
+}
+
+func (r *RingBuffer) FindByInReplyTo(requestID string) (types.Event, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for i := len(r.events) - 1; i >= 0; i-- {
+		if r.events[i].InReplyTo == requestID {
+			return r.events[i], true
+		}
+	}
+	return types.Event{}, false
+}
+
 func (r *RingBuffer) Ack(id string, by string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
