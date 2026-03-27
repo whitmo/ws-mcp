@@ -11,4 +11,4 @@ Thumbs.db
 *.test
 vendor/
 *.out
-bridge
+/bridge
