@@ -47,7 +47,7 @@ func main() {
 		for _, ev := range persisted[start:] {
 			buf.Push(ev)
 		}
-		fmt.Printf("Replayed %d events from %s\n", len(persisted)-start, eventsPath)
+		fmt.Fprintf(os.Stderr, "Replayed %d events from %s\n", len(persisted)-start, eventsPath)
 	}
 
 	h := hub.NewHub()
@@ -79,14 +79,14 @@ func main() {
 
 	go func() {
 		<-stop
-		fmt.Println("\nShutting down gracefully...")
+		fmt.Fprintln(os.Stderr, "\nShutting down gracefully...")
 		fileStore.Close()
 		h.Stop()
 		os.Exit(0)
 	}()
 
 	port := "8080"
-	fmt.Printf("Listening on :%s (JSON-RPC at /rpc)\n", port)
+	fmt.Fprintf(os.Stderr, "Listening on :%s (JSON-RPC at /rpc)\n", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
