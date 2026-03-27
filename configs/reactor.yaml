@@ -1,0 +1,17 @@
+rules:
+  - name: review-trigger
+    source: multiclaude
+    type: review.requested
+    command: "multiclaude review $PR_NUMBER"
+
+  - name: task-failure-notify
+    type: task.failed
+    command: 'terminal-notifier -title ws-mcp -message "Task failed: $TASK_ID"'
+
+  - name: agent-started-log
+    type: agent.started
+    command: 'echo "$TIMESTAMP $AGENT started" >> ~/.bridge/logs/agents.log'
+
+  - name: agent-stopped-log
+    type: agent.stopped
+    command: 'echo "$TIMESTAMP $AGENT stopped" >> ~/.bridge/logs/agents.log'
