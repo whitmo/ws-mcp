@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/gorilla/websocket"
@@ -41,6 +42,11 @@ func (r *Router) handleIngest() http.HandlerFunc {
 		if event.Source != types.SourceRalph && event.Source != types.SourceMultiClaude && event.Source != types.SourceSystem {
 			http.Error(w, "Invalid source", http.StatusBadRequest)
 			return
+		}
+
+		// Warn on unknown event types (accept but log)
+		if !types.IsKnownEventType(event.Type) {
+			log.Printf("WARN: unknown event type %q from source %q (id=%s)", event.Type, event.Source, event.ID)
 		}
 
 		// Store Event
