@@ -8,8 +8,9 @@ import (
 )
 
 type Router struct {
-	store *store.RingBuffer
-	hub   *hub.Hub
+	store     *store.RingBuffer
+	hub       *hub.Hub
+	fileStore *store.FileStore
 }
 
 func NewRouter(s *store.RingBuffer) *Router {

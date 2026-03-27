@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/whitmo/ws-mcp/src/internal/hub"
@@ -16,14 +18,38 @@ import (
 )
 
 func main() {
+	stdio := flag.Bool("stdio", false, "Run MCP server on stdio transport")
+	dataDir := flag.String("data-dir", ".bridge", "Directory for persistent data files")
+	flag.Parse()
+
 	fmt.Fprintln(os.Stderr, "MCP Bridge Service initializing...")
 
 	// Handle graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-	// Initialize components
-	buf := store.NewRingBuffer(2000)
+	const bufCap = 2000
+	buf := store.NewRingBuffer(bufCap)
+
+	// Open durable file store
+	eventsPath := filepath.Join(*dataDir, "events.jsonl")
+	fileStore, err := store.NewFileStore(eventsPath)
+	if err != nil {
+		log.Fatalf("Failed to open file store at %s: %v", eventsPath, err)
+	}
+
+	// Replay persisted events into ring buffer (most recent bufCap)
+	if persisted, err := store.ReadEventsFromFile(eventsPath); err == nil && len(persisted) > 0 {
+		start := 0
+		if len(persisted) > bufCap {
+			start = len(persisted) - bufCap
+		}
+		for _, ev := range persisted[start:] {
+			buf.Push(ev)
+		}
+		fmt.Printf("Replayed %d events from %s\n", len(persisted)-start, eventsPath)
+	}
+
 	h := hub.NewHub()
 	go h.Run()
 
@@ -31,12 +57,12 @@ func main() {
 	mcpHandler := mcp.NewHandler(buf)
 	mcpServer := mcp.NewServer(mcpHandler)
 
-	// Check for stdio transport mode
-	if len(os.Args) > 1 && os.Args[1] == "--stdio" {
+	if *stdio {
 		fmt.Fprintln(os.Stderr, "MCP server running on stdio")
 		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
 			<-stop
+			fileStore.Close()
 			cancel()
 		}()
 		if err := mcpServer.ServeStdio(ctx); err != nil {
@@ -47,12 +73,14 @@ func main() {
 
 	router := api.NewRouter(buf)
 	router.SetHub(h)
+	router.SetFileStore(fileStore)
 	mux := router.SetupRoutes()
 	mux.Handle("/rpc", mcpServer)
 
 	go func() {
 		<-stop
 		fmt.Println("\nShutting down gracefully...")
+		fileStore.Close()
 		h.Stop()
 		os.Exit(0)
 	}()
