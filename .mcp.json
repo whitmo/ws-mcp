@@ -6,9 +6,8 @@
       "env": {}
     },
     "ws-mcp": {
-      "command": "go",
-      "args": ["run", "./src/cmd/bridge", "--stdio"],
-      "env": {}
+      "command": "ws-mcp-bridge",
+      "args": ["--stdio"]
     }
   }
 }
