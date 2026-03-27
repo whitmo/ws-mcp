@@ -120,7 +120,7 @@ func TestMCPHandlers_Filter(t *testing.T) {
 
 	handler := NewHandler(rb)
 	
-	result, err := handler.HandleFilter(context.Background(), string(types.SourceRalph))
+	result, err := handler.HandleFilter(context.Background(), string(types.SourceRalph), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

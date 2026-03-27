@@ -26,15 +26,19 @@ func (h *Handler) HandleLatest(ctx context.Context, limit int) ([]types.Event, e
 	return events, nil
 }
 
-func (h *Handler) HandleFilter(ctx context.Context, source string) ([]types.Event, error) {
-	// For MVP, we fetch latest 100 and filter in memory
+func (h *Handler) HandleFilter(ctx context.Context, source string, excludeType string) ([]types.Event, error) {
+	// Fetch latest 100 and filter in memory
 	all := h.store.Latest(100)
-	var filtered []types.Event
-	
+	filtered := make([]types.Event, 0)
+
 	for _, e := range all {
-		if string(e.Source) == source {
-			filtered = append(filtered, e)
+		if source != "" && string(e.Source) != source {
+			continue
 		}
+		if excludeType != "" && e.Type == excludeType {
+			continue
+		}
+		filtered = append(filtered, e)
 	}
 
 	return filtered, nil
