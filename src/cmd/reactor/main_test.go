@@ -288,6 +288,143 @@ func TestLoadConfig_empty(t *testing.T) {
 	}
 }
 
+func TestLoadReactorConfig(t *testing.T) {
+	// Load the real configs/reactor.yaml
+	cfg, err := LoadConfig("../../../configs/reactor.yaml")
+	if err != nil {
+		t.Fatalf("failed to load configs/reactor.yaml: %v", err)
+	}
+	if len(cfg.Rules) != 4 {
+		t.Fatalf("expected 4 rules, got %d", len(cfg.Rules))
+	}
+
+	// Verify rule names
+	expected := []string{"review-trigger", "task-failure-notify", "agent-started-log", "agent-stopped-log"}
+	for i, name := range expected {
+		if cfg.Rules[i].Name != name {
+			t.Errorf("rule[%d].Name = %q, want %q", i, cfg.Rules[i].Name, name)
+		}
+	}
+}
+
+func TestReactorConfigMatchesEvents(t *testing.T) {
+	cfg, err := LoadConfig("../../../configs/reactor.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	ts := time.Date(2026, 3, 27, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name        string
+		event       types.Event
+		wantMatches []string // expected rule names that match
+		wantCmd     string   // expected expanded command from first matching rule
+	}{
+		{
+			name: "review.requested matches review-trigger",
+			event: types.Event{
+				Source:  types.SourceMultiClaude,
+				Type:    "review.requested",
+				Ts:      ts,
+				Payload: map[string]any{"pr_number": "42", "reviewer": "bot"},
+			},
+			wantMatches: []string{"review-trigger"},
+			wantCmd:     "multiclaude review 42",
+		},
+		{
+			name: "task.failed matches task-failure-notify",
+			event: types.Event{
+				Source:  types.SourceRalph,
+				Type:    "task.failed",
+				Ts:      ts,
+				Payload: map[string]any{"task_id": "build-123", "agent": "worker-1", "reason": "timeout"},
+			},
+			wantMatches: []string{"task-failure-notify"},
+			wantCmd:     `terminal-notifier -title ws-mcp -message "Task failed: build-123"`,
+		},
+		{
+			name: "agent.started matches agent-started-log",
+			event: types.Event{
+				Source:  types.SourceMultiClaude,
+				Type:    "agent.started",
+				Ts:      ts,
+				Payload: map[string]any{"agent": "lively-squirrel", "worktree": "/tmp/wt"},
+			},
+			wantMatches: []string{"agent-started-log"},
+			wantCmd:     `echo "2026-03-27T12:00:00Z lively-squirrel started" >> ~/.bridge/logs/agents.log`,
+		},
+		{
+			name: "agent.stopped matches agent-stopped-log",
+			event: types.Event{
+				Source:  types.SourceMultiClaude,
+				Type:    "agent.stopped",
+				Ts:      ts,
+				Payload: map[string]any{"agent": "bold-lion", "reason": "completed"},
+			},
+			wantMatches: []string{"agent-stopped-log"},
+			wantCmd:     `echo "2026-03-27T12:00:00Z bold-lion stopped" >> ~/.bridge/logs/agents.log`,
+		},
+		{
+			name: "unrelated event matches nothing",
+			event: types.Event{
+				Source: types.SourceSystem,
+				Type:   "system.healthcheck",
+				Ts:     ts,
+			},
+			wantMatches: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var matched []string
+			for _, rule := range cfg.Rules {
+				if MatchRule(rule, tt.event) {
+					matched = append(matched, rule.Name)
+				}
+			}
+
+			if len(matched) != len(tt.wantMatches) {
+				t.Fatalf("matched rules = %v, want %v", matched, tt.wantMatches)
+			}
+			for i := range matched {
+				if matched[i] != tt.wantMatches[i] {
+					t.Errorf("matched[%d] = %q, want %q", i, matched[i], tt.wantMatches[i])
+				}
+			}
+
+			// Check command expansion for first matching rule
+			if tt.wantCmd != "" && len(matched) > 0 {
+				for _, rule := range cfg.Rules {
+					if rule.Name == matched[0] {
+						got := ExpandVars(rule.Command, tt.event)
+						if got != tt.wantCmd {
+							t.Errorf("expanded command = %q, want %q", got, tt.wantCmd)
+						}
+						break
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestExpandVarsTimestamp(t *testing.T) {
+	ts := time.Date(2026, 3, 27, 12, 0, 0, 0, time.UTC)
+	event := types.Event{
+		Source:  types.SourceMultiClaude,
+		Type:    "agent.started",
+		Ts:      ts,
+		Payload: map[string]any{"agent": "test-worker"},
+	}
+	got := ExpandVars("echo $TIMESTAMP $AGENT", event)
+	want := "echo 2026-03-27T12:00:00Z test-worker"
+	if got != want {
+		t.Errorf("ExpandVars() = %q, want %q", got, want)
+	}
+}
+
 func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }

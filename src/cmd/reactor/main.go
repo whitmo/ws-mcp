@@ -127,9 +127,10 @@ func globMatch(pattern, value string) bool {
 // Also supports $SOURCE, $TYPE, $ID from the event itself.
 func ExpandVars(cmd string, event types.Event) string {
 	replacements := map[string]string{
-		"SOURCE": string(event.Source),
-		"TYPE":   event.Type,
-		"ID":     event.ID,
+		"SOURCE":    string(event.Source),
+		"TYPE":      event.Type,
+		"ID":        event.ID,
+		"TIMESTAMP": event.Ts.Format(time.RFC3339),
 	}
 	for k, v := range event.Payload {
 		if s, ok := v.(string); ok {
