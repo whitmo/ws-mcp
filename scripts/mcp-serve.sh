@@ -4,4 +4,4 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-exec go run ./src/cmd/bridge --mode mcp "$@"
+exec go run ./src/cmd/bridge --stdio "$@"
