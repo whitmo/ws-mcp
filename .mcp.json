@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "ralph-orchestrator": {
+      "command": "ralph",
+      "args": ["mcp", "serve"],
+      "env": {}
+    }
+  }
+}
