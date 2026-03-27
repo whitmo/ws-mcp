@@ -33,7 +33,10 @@ func (h *Handler) HandleFilter(ctx context.Context, source string) ([]types.Even
 			filtered = append(filtered, e)
 		}
 	}
-	
+
+	return filtered, nil
+}
+
 func (h *Handler) HandleAck(ctx context.Context, id string, ackedBy string) error {
 	return h.store.Ack(id, ackedBy)
 	// Note: Broadcasting the acked state over WS (T026) would require h.hub.Broadcast(event)
