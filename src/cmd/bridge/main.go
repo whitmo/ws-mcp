@@ -16,7 +16,7 @@ import (
 )
 
 func main() {
-	fmt.Println("MCP Bridge Service initializing...")
+	fmt.Fprintln(os.Stderr, "MCP Bridge Service initializing...")
 
 	// Handle graceful shutdown
 	stop := make(chan os.Signal, 1)
