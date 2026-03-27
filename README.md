@@ -17,6 +17,75 @@ go build -o bridge ./src/cmd/bridge
 ./bridge
 ```
 
+## MCP Server Configuration
+
+ws-mcp can be used as an MCP server by AI agents over stdio transport. The repo includes a `.mcp.json` config that tools like Claude Code auto-detect.
+
+### Claude Code
+
+Add to your Claude Code settings (`~/.claude/settings.json` or project `.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "ws-mcp": {
+      "command": "go",
+      "args": ["run", "./src/cmd/bridge", "--mode", "mcp"],
+      "cwd": "/path/to/ws-mcp",
+      "env": { "WS_MCP_PORT": "8080" }
+    }
+  }
+}
+```
+
+Or place a `.mcp.json` in the repo root (already included).
+
+### Gemini CLI
+
+Add to your Gemini settings (`~/.gemini/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "ws-mcp": {
+      "command": "go",
+      "args": ["run", "./src/cmd/bridge", "--mode", "mcp"],
+      "cwd": "/path/to/ws-mcp"
+    }
+  }
+}
+```
+
+### Codex
+
+Add to your Codex MCP config:
+
+```json
+{
+  "mcpServers": {
+    "ws-mcp": {
+      "command": "/path/to/ws-mcp/scripts/mcp-serve.sh"
+    }
+  }
+}
+```
+
+### Start manually
+
+```bash
+./scripts/mcp-serve.sh
+```
+
+## Smoke Test
+
+Run the round-trip smoke test (requires the bridge port to be free):
+
+```bash
+./scripts/smoke-test.sh
+```
+
+This builds the bridge, starts it, verifies the healthcheck, posts an event via HTTP, and optionally checks WebSocket delivery (if `websocat` or `wscat` is installed).
+
 ## Running Tests
 Tests are designed under a Test-Driven Development (TDD) philosophy.
 ```bash
