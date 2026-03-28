@@ -26,7 +26,7 @@ func (h *Handler) HandleLatest(ctx context.Context, limit int) ([]types.Event, e
 	return events, nil
 }
 
-func (h *Handler) HandleFilter(ctx context.Context, source string, excludeType string) ([]types.Event, error) {
+func (h *Handler) HandleFilter(ctx context.Context, source string, excludeType string, repo string) ([]types.Event, error) {
 	// Fetch latest 100 and filter in memory
 	all := h.store.Latest(100)
 	filtered := make([]types.Event, 0)
@@ -36,6 +36,9 @@ func (h *Handler) HandleFilter(ctx context.Context, source string, excludeType s
 			continue
 		}
 		if excludeType != "" && e.Type == excludeType {
+			continue
+		}
+		if repo != "" && e.Repo != repo {
 			continue
 		}
 		filtered = append(filtered, e)
@@ -92,6 +95,38 @@ func (h *Handler) HandleAwaitReply(ctx context.Context, requestID string, timeou
 			}
 		}
 	}
+}
+
+// ActiveReposResult holds the repos.active response.
+type ActiveReposResult struct {
+	Window int      `json:"window"`
+	Repos  []string `json:"repos"`
+}
+
+func (h *Handler) HandleActiveRepos(ctx context.Context, windowMinutes int) (*ActiveReposResult, error) {
+	if windowMinutes <= 0 {
+		windowMinutes = 60
+	}
+
+	cutoff := time.Now().Add(-time.Duration(windowMinutes) * time.Minute)
+	all := h.store.Latest(100)
+
+	seen := make(map[string]bool)
+	for _, e := range all {
+		if e.Ts.Before(cutoff) {
+			continue
+		}
+		if e.Repo != "" {
+			seen[e.Repo] = true
+		}
+	}
+
+	repos := make([]string, 0, len(seen))
+	for r := range seen {
+		repos = append(repos, r)
+	}
+
+	return &ActiveReposResult{Window: windowMinutes, Repos: repos}, nil
 }
 
 // SummaryResult holds the report.summary response.

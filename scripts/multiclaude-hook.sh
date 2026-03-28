@@ -11,6 +11,7 @@
 #   WS_MCP_URL — Bridge base URL (default: http://localhost:8080)
 #
 # This script wraps scripts/post-event.sh, merging the worker name into the payload.
+# Auto-detects the current git repo name and includes it in events.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -30,6 +31,12 @@ case "$EVENT_TYPE" in
     ;;
 esac
 
+# Auto-detect repo name from git remote or directory name
+REPO=""
+if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  REPO="$(git remote get-url origin 2>/dev/null | sed 's|.*/||;s|\.git$||' || basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)"
+fi
+
 # Merge worker name into payload. If extra payload is "{}", just use worker field.
 # For non-empty extra payload, merge them together.
 if [ "$EXTRA_PAYLOAD" = "{}" ]; then
@@ -40,4 +47,10 @@ else
   PAYLOAD="{\"worker\":\"${WORKER_NAME}\",${MERGED}"
 fi
 
-exec "${SCRIPT_DIR}/post-event.sh" "$EVENT_TYPE" "multiclaude" "$PAYLOAD"
+# Build repo flag if detected
+REPO_FLAG=()
+if [ -n "$REPO" ]; then
+  REPO_FLAG=(--repo "$REPO")
+fi
+
+exec "${SCRIPT_DIR}/post-event.sh" "$EVENT_TYPE" "multiclaude" "$PAYLOAD" "${REPO_FLAG[@]}"

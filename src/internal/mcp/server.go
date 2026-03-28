@@ -67,7 +67,7 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "events_filter",
-			Description: "Filter events by source and/or exclude by type",
+			Description: "Filter events by source, repo, and/or exclude by type",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -78,6 +78,10 @@ func toolDefs() []ToolDef {
 					"exclude_type": map[string]any{
 						"type":        "string",
 						"description": "Event type to exclude (e.g. agent.activity to filter noise)",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository name to filter by",
 					},
 				},
 			},
@@ -157,6 +161,19 @@ func toolDefs() []ToolDef {
 				"required": []string{"request_id"},
 			},
 		},
+		{
+			Name:        "repos_active",
+			Description: "List repositories that have had events in the last N minutes",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"window": map[string]any{
+						"type":        "integer",
+						"description": "Time window in minutes (default 60)",
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -196,6 +213,8 @@ func (s *Server) Dispatch(ctx context.Context, req *Request) *Response {
 		return s.handleEventsRequest(ctx, req)
 	case "events.await_reply":
 		return s.handleEventsAwaitReply(ctx, req)
+	case "repos.active":
+		return s.handleReposActive(ctx, req)
 	default:
 		return &Response{
 			JSONRPC: "2.0",
@@ -253,6 +272,8 @@ func (s *Server) handleToolsCall(ctx context.Context, req *Request) *Response {
 		innerResp = s.handleEventsRequest(ctx, inner)
 	case "events_await_reply":
 		innerResp = s.handleEventsAwaitReply(ctx, inner)
+	case "repos_active":
+		innerResp = s.handleReposActive(ctx, inner)
 	default:
 		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeNoMethod, Message: fmt.Sprintf("unknown tool: %s", params.Name)}}
 	}
@@ -300,6 +321,7 @@ func (s *Server) handleEventsFilter(ctx context.Context, req *Request) *Response
 	var params struct {
 		Source      string `json:"source"`
 		ExcludeType string `json:"exclude_type"`
+		Repo        string `json:"repo"`
 	}
 	if req.Params != nil {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
@@ -307,7 +329,7 @@ func (s *Server) handleEventsFilter(ctx context.Context, req *Request) *Response
 		}
 	}
 
-	events, err := s.handler.HandleFilter(ctx, params.Source, params.ExcludeType)
+	events, err := s.handler.HandleFilter(ctx, params.Source, params.ExcludeType, params.Repo)
 	if err != nil {
 		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
 	}
@@ -406,6 +428,23 @@ func (s *Server) handleEventsAwaitReply(ctx context.Context, req *Request) *Resp
 		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
 	}
 	return &Response{JSONRPC: "2.0", ID: req.ID, Result: reply}
+}
+
+func (s *Server) handleReposActive(ctx context.Context, req *Request) *Response {
+	var params struct {
+		Window int `json:"window"`
+	}
+	if req.Params != nil {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "invalid params"}}
+		}
+	}
+
+	result, err := s.handler.HandleActiveRepos(ctx, params.Window)
+	if err != nil {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
+	}
+	return &Response{JSONRPC: "2.0", ID: req.ID, Result: result}
 }
 
 // ServeHTTP handles JSON-RPC over HTTP POST.

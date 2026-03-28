@@ -119,13 +119,80 @@ func TestMCPHandlers_Filter(t *testing.T) {
 	rb.Push(types.Event{ID: "event-2", Source: types.SourceSystem, Ts: time.Now()})
 
 	handler := NewHandler(rb)
-	
-	result, err := handler.HandleFilter(context.Background(), string(types.SourceRalph), "")
+
+	result, err := handler.HandleFilter(context.Background(), string(types.SourceRalph), "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if len(result) != 1 || result[0].ID != "event-1" {
 		t.Fatalf("expected event-1, got %v", result)
+	}
+}
+
+func TestMCPHandlers_FilterByRepo(t *testing.T) {
+	rb := store.NewRingBuffer(10)
+	rb.Push(types.Event{ID: "e1", Source: types.SourceRalph, Repo: "repo-a", Ts: time.Now()})
+	rb.Push(types.Event{ID: "e2", Source: types.SourceRalph, Repo: "repo-b", Ts: time.Now()})
+	rb.Push(types.Event{ID: "e3", Source: types.SourceMultiClaude, Repo: "repo-a", Ts: time.Now()})
+
+	handler := NewHandler(rb)
+
+	result, err := handler.HandleFilter(context.Background(), "", "", "repo-a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 events for repo-a, got %d", len(result))
+	}
+
+	// Filter by both source and repo
+	result, err = handler.HandleFilter(context.Background(), "multiclaude", "", "repo-a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 1 || result[0].ID != "e3" {
+		t.Fatalf("expected e3, got %v", result)
+	}
+}
+
+func TestMCPHandlers_ActiveRepos(t *testing.T) {
+	rb := store.NewRingBuffer(10)
+	rb.Push(types.Event{ID: "e1", Source: types.SourceRalph, Repo: "repo-a", Ts: time.Now()})
+	rb.Push(types.Event{ID: "e2", Source: types.SourceSystem, Repo: "repo-b", Ts: time.Now()})
+	rb.Push(types.Event{ID: "e3", Source: types.SourceMultiClaude, Repo: "repo-a", Ts: time.Now()})
+	rb.Push(types.Event{ID: "e4", Source: types.SourceSystem, Ts: time.Now()}) // no repo
+
+	handler := NewHandler(rb)
+
+	result, err := handler.HandleActiveRepos(context.Background(), 60)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Repos) != 2 {
+		t.Fatalf("expected 2 active repos, got %d: %v", len(result.Repos), result.Repos)
+	}
+
+	repoSet := make(map[string]bool)
+	for _, r := range result.Repos {
+		repoSet[r] = true
+	}
+	if !repoSet["repo-a"] || !repoSet["repo-b"] {
+		t.Fatalf("expected repo-a and repo-b, got %v", result.Repos)
+	}
+}
+
+func TestMCPHandlers_ActiveRepos_Empty(t *testing.T) {
+	rb := store.NewRingBuffer(10)
+	rb.Push(types.Event{ID: "e1", Source: types.SourceRalph, Ts: time.Now()}) // no repo
+
+	handler := NewHandler(rb)
+
+	result, err := handler.HandleActiveRepos(context.Background(), 60)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Repos) != 0 {
+		t.Fatalf("expected 0 active repos, got %d", len(result.Repos))
 	}
 }

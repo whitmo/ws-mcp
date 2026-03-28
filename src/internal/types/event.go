@@ -16,6 +16,7 @@ type Event struct {
 	ID        string         `json:"id"`
 	Source    EventSource    `json:"source"`
 	Type      string         `json:"type"`
+	Repo      string         `json:"repo,omitempty"`
 	Ts        time.Time      `json:"ts"`
 	Payload   map[string]any `json:"payload"`
 	Acked     bool           `json:"acked"`

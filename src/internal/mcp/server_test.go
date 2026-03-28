@@ -225,8 +225,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatal("missing tools array")
 	}
-	if len(tools) != 6 {
-		t.Fatalf("expected 6 tools, got %d", len(tools))
+	if len(tools) != 7 {
+		t.Fatalf("expected 7 tools, got %d", len(tools))
 	}
 
 	// Verify each tool has required fields
@@ -234,6 +234,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		"events_latest": false, "events_filter": false,
 		"events_ack": false, "report_summary": false,
 		"events_request": false, "events_await_reply": false,
+		"repos_active": false,
 	}
 	for _, raw := range tools {
 		tool := raw.(map[string]any)
@@ -518,6 +519,102 @@ func TestHTTP_MethodNotAllowed(t *testing.T) {
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestDispatch_EventsFilter_ByRepo(t *testing.T) {
+	srv, rb := newTestServer()
+	rb.Push(types.Event{ID: "e1", Source: types.SourceRalph, Repo: "repo-x", Type: "task.start", Ts: time.Now()})
+	rb.Push(types.Event{ID: "e2", Source: types.SourceRalph, Repo: "repo-y", Type: "task.start", Ts: time.Now()})
+	rb.Push(types.Event{ID: "e3", Source: types.SourceMultiClaude, Repo: "repo-x", Type: "task.complete", Ts: time.Now()})
+
+	resp := doRPC(t, srv, "events.filter", map[string]string{"source": "multiclaude", "repo": "repo-x"})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	b, _ := json.Marshal(resp.Result)
+	var events []types.Event
+	json.Unmarshal(b, &events)
+	if len(events) != 1 || events[0].ID != "e3" {
+		t.Fatalf("expected 1 event (e3), got %v", events)
+	}
+}
+
+func TestDispatch_ReposActive(t *testing.T) {
+	srv, rb := newTestServer()
+	rb.Push(types.Event{ID: "e1", Source: types.SourceRalph, Repo: "alpha", Type: "task.start", Ts: time.Now()})
+	rb.Push(types.Event{ID: "e2", Source: types.SourceSystem, Repo: "beta", Type: "error", Ts: time.Now()})
+	rb.Push(types.Event{ID: "e3", Source: types.SourceMultiClaude, Type: "task.start", Ts: time.Now()}) // no repo
+
+	resp := doRPC(t, srv, "repos.active", map[string]int{"window": 60})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	b, _ := json.Marshal(resp.Result)
+	var result ActiveReposResult
+	json.Unmarshal(b, &result)
+	if len(result.Repos) != 2 {
+		t.Fatalf("expected 2 repos, got %d: %v", len(result.Repos), result.Repos)
+	}
+}
+
+func TestMCP_ToolsCall_ReposActive(t *testing.T) {
+	srv, rb := newTestServer()
+	rb.Push(types.Event{ID: "e1", Source: types.SourceRalph, Repo: "my-repo", Type: "task.start", Ts: time.Now()})
+
+	resp := doRPC(t, srv, "tools/call", map[string]any{
+		"name":      "repos_active",
+		"arguments": map[string]any{"window": 60},
+	})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	b, _ := json.Marshal(resp.Result)
+	var result map[string]any
+	json.Unmarshal(b, &result)
+
+	content, ok := result["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("expected content array with 1 element, got %v", result["content"])
+	}
+	item := content[0].(map[string]any)
+	text := item["text"].(string)
+
+	var active ActiveReposResult
+	json.Unmarshal([]byte(text), &active)
+	if len(active.Repos) != 1 || active.Repos[0] != "my-repo" {
+		t.Fatalf("expected [my-repo], got %v", active.Repos)
+	}
+}
+
+func TestDispatch_EventsFilter_RepoViaToolsCall(t *testing.T) {
+	srv, rb := newTestServer()
+	rb.Push(types.Event{ID: "e1", Source: types.SourceMultiClaude, Repo: "enriched-alert", Type: "task.start", Ts: time.Now()})
+	rb.Push(types.Event{ID: "e2", Source: types.SourceMultiClaude, Repo: "other-repo", Type: "task.start", Ts: time.Now()})
+
+	resp := doRPC(t, srv, "tools/call", map[string]any{
+		"name":      "events_filter",
+		"arguments": map[string]any{"source": "multiclaude", "repo": "enriched-alert"},
+	})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	b, _ := json.Marshal(resp.Result)
+	var result map[string]any
+	json.Unmarshal(b, &result)
+
+	content := result["content"].([]any)
+	item := content[0].(map[string]any)
+	text := item["text"].(string)
+
+	var events []types.Event
+	json.Unmarshal([]byte(text), &events)
+	if len(events) != 1 || events[0].ID != "e1" {
+		t.Fatalf("expected 1 event (e1), got %v", events)
 	}
 }
 
