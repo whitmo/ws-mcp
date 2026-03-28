@@ -49,7 +49,7 @@ type ToolDef struct {
 	InputSchema any    `json:"inputSchema"`
 }
 
-// toolDefs returns the MCP tool definitions for all 4 tools.
+// toolDefs returns the MCP tool definitions for all tools.
 func toolDefs() []ToolDef {
 	return []ToolDef{
 		{
@@ -67,7 +67,7 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "events_filter",
-			Description: "Filter events by source and/or exclude by type",
+			Description: "Filter events by source, repo, and/or exclude by type",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -79,7 +79,25 @@ func toolDefs() []ToolDef {
 						"type":        "string",
 						"description": "Event type to exclude (e.g. agent.activity to filter noise)",
 					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository to filter by",
+					},
 				},
+			},
+		},
+		{
+			Name:        "events_trace",
+			Description: "Get all events matching a trace ID, ordered by timestamp",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"trace_id": map[string]any{
+						"type":        "string",
+						"description": "Trace ID to look up",
+					},
+				},
+				"required": []string{"trace_id"},
 			},
 		},
 		{
@@ -134,6 +152,22 @@ func toolDefs() []ToolDef {
 					"reply_to": map[string]any{
 						"type":        "string",
 						"description": "Optional: ID of the event this request is directed to",
+					},
+					"trace_id": map[string]any{
+						"type":        "string",
+						"description": "Trace ID for correlating related events",
+					},
+					"parent_id": map[string]any{
+						"type":        "string",
+						"description": "Parent event ID within a trace",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository this event belongs to",
+					},
+					"agent_id": map[string]any{
+						"type":        "string",
+						"description": "ID of the agent that generated this event",
 					},
 				},
 				"required": []string{"id", "source"},
@@ -196,6 +230,8 @@ func (s *Server) Dispatch(ctx context.Context, req *Request) *Response {
 		return s.handleEventsRequest(ctx, req)
 	case "events.await_reply":
 		return s.handleEventsAwaitReply(ctx, req)
+	case "events.trace":
+		return s.handleEventsTrace(ctx, req)
 	default:
 		return &Response{
 			JSONRPC: "2.0",
@@ -253,6 +289,8 @@ func (s *Server) handleToolsCall(ctx context.Context, req *Request) *Response {
 		innerResp = s.handleEventsRequest(ctx, inner)
 	case "events_await_reply":
 		innerResp = s.handleEventsAwaitReply(ctx, inner)
+	case "events_trace":
+		innerResp = s.handleEventsTrace(ctx, inner)
 	default:
 		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeNoMethod, Message: fmt.Sprintf("unknown tool: %s", params.Name)}}
 	}
@@ -300,6 +338,7 @@ func (s *Server) handleEventsFilter(ctx context.Context, req *Request) *Response
 	var params struct {
 		Source      string `json:"source"`
 		ExcludeType string `json:"exclude_type"`
+		Repo        string `json:"repo"`
 	}
 	if req.Params != nil {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
@@ -307,7 +346,27 @@ func (s *Server) handleEventsFilter(ctx context.Context, req *Request) *Response
 		}
 	}
 
-	events, err := s.handler.HandleFilter(ctx, params.Source, params.ExcludeType)
+	events, err := s.handler.HandleFilter(ctx, params.Source, params.ExcludeType, params.Repo)
+	if err != nil {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
+	}
+	return &Response{JSONRPC: "2.0", ID: req.ID, Result: events}
+}
+
+func (s *Server) handleEventsTrace(ctx context.Context, req *Request) *Response {
+	var params struct {
+		TraceID string `json:"trace_id"`
+	}
+	if req.Params != nil {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "invalid params"}}
+		}
+	}
+	if params.TraceID == "" {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "trace_id is required"}}
+	}
+
+	events, err := s.handler.HandleTrace(ctx, params.TraceID)
 	if err != nil {
 		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
 	}
@@ -354,10 +413,14 @@ func (s *Server) handleReportSummary(ctx context.Context, req *Request) *Respons
 
 func (s *Server) handleEventsRequest(ctx context.Context, req *Request) *Response {
 	var params struct {
-		ID      string         `json:"id"`
-		Source  string         `json:"source"`
-		Payload map[string]any `json:"payload"`
-		ReplyTo string         `json:"reply_to"`
+		ID       string         `json:"id"`
+		Source   string         `json:"source"`
+		Payload  map[string]any `json:"payload"`
+		ReplyTo  string         `json:"reply_to"`
+		TraceID  string         `json:"trace_id"`
+		ParentID string         `json:"parent_id"`
+		Repo     string         `json:"repo"`
+		AgentID  string         `json:"agent_id"`
 	}
 	if req.Params != nil {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
@@ -372,12 +435,16 @@ func (s *Server) handleEventsRequest(ctx context.Context, req *Request) *Respons
 	}
 
 	event := types.Event{
-		ID:      params.ID,
-		Source:  types.EventSource(params.Source),
-		Type:    "request",
-		Ts:      time.Now(),
-		Payload: params.Payload,
-		ReplyTo: params.ReplyTo,
+		ID:       params.ID,
+		Source:   types.EventSource(params.Source),
+		Type:     "request",
+		Ts:       time.Now(),
+		Payload:  params.Payload,
+		ReplyTo:  params.ReplyTo,
+		TraceID:  params.TraceID,
+		ParentID: params.ParentID,
+		Repo:     params.Repo,
+		AgentID:  params.AgentID,
 	}
 
 	eventID, err := s.handler.HandleRequest(ctx, event)

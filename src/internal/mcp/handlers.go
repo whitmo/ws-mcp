@@ -26,7 +26,7 @@ func (h *Handler) HandleLatest(ctx context.Context, limit int) ([]types.Event, e
 	return events, nil
 }
 
-func (h *Handler) HandleFilter(ctx context.Context, source string, excludeType string) ([]types.Event, error) {
+func (h *Handler) HandleFilter(ctx context.Context, source string, excludeType string, repo string) ([]types.Event, error) {
 	// Fetch latest 100 and filter in memory
 	all := h.store.Latest(100)
 	filtered := make([]types.Event, 0)
@@ -38,10 +38,24 @@ func (h *Handler) HandleFilter(ctx context.Context, source string, excludeType s
 		if excludeType != "" && e.Type == excludeType {
 			continue
 		}
+		if repo != "" && e.Repo != repo {
+			continue
+		}
 		filtered = append(filtered, e)
 	}
 
 	return filtered, nil
+}
+
+func (h *Handler) HandleTrace(ctx context.Context, traceID string) ([]types.Event, error) {
+	if traceID == "" {
+		return nil, errors.New("trace_id is required")
+	}
+	events := h.store.FindByTraceID(traceID)
+	if events == nil {
+		events = []types.Event{}
+	}
+	return events, nil
 }
 
 func (h *Handler) HandleAck(ctx context.Context, id string, ackedBy string) error {

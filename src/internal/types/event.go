@@ -23,4 +23,8 @@ type Event struct {
 	AckedTs   *time.Time     `json:"acked_ts,omitempty"`
 	ReplyTo   string         `json:"reply_to,omitempty"`
 	InReplyTo string         `json:"in_reply_to,omitempty"`
+	TraceID   string         `json:"trace_id,omitempty"`
+	ParentID  string         `json:"parent_id,omitempty"`
+	Repo      string         `json:"repo,omitempty"`
+	AgentID   string         `json:"agent_id,omitempty"`
 }

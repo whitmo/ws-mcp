@@ -120,12 +120,73 @@ func TestMCPHandlers_Filter(t *testing.T) {
 
 	handler := NewHandler(rb)
 	
-	result, err := handler.HandleFilter(context.Background(), string(types.SourceRalph), "")
+	result, err := handler.HandleFilter(context.Background(), string(types.SourceRalph), "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if len(result) != 1 || result[0].ID != "event-1" {
 		t.Fatalf("expected event-1, got %v", result)
+	}
+}
+
+func TestMCPHandlers_Filter_ByRepo(t *testing.T) {
+	rb := store.NewRingBuffer(10)
+	rb.Push(types.Event{ID: "event-1", Source: types.SourceRalph, Ts: time.Now(), Repo: "repo-a"})
+	rb.Push(types.Event{ID: "event-2", Source: types.SourceSystem, Ts: time.Now(), Repo: "repo-b"})
+
+	handler := NewHandler(rb)
+
+	result, err := handler.HandleFilter(context.Background(), "", "", "repo-a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != 1 || result[0].ID != "event-1" {
+		t.Fatalf("expected event-1, got %v", result)
+	}
+}
+
+func TestMCPHandlers_Trace(t *testing.T) {
+	rb := store.NewRingBuffer(10)
+	rb.Push(types.Event{ID: "e1", Source: types.SourceRalph, Ts: time.Now(), TraceID: "t1"})
+	rb.Push(types.Event{ID: "e2", Source: types.SourceSystem, Ts: time.Now(), TraceID: "t2"})
+	rb.Push(types.Event{ID: "e3", Source: types.SourceRalph, Ts: time.Now(), TraceID: "t1"})
+
+	handler := NewHandler(rb)
+
+	result, err := handler.HandleTrace(context.Background(), "t1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(result))
+	}
+	if result[0].ID != "e1" || result[1].ID != "e3" {
+		t.Fatalf("expected e1 and e3, got %s and %s", result[0].ID, result[1].ID)
+	}
+}
+
+func TestMCPHandlers_Trace_Empty(t *testing.T) {
+	rb := store.NewRingBuffer(10)
+	handler := NewHandler(rb)
+
+	result, err := handler.HandleTrace(context.Background(), "nonexistent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 0 {
+		t.Fatalf("expected 0 events, got %d", len(result))
+	}
+}
+
+func TestMCPHandlers_Trace_MissingID(t *testing.T) {
+	rb := store.NewRingBuffer(10)
+	handler := NewHandler(rb)
+
+	_, err := handler.HandleTrace(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected error for missing trace_id")
 	}
 }

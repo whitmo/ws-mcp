@@ -64,6 +64,26 @@ func TestRingBuffer_FindByInReplyTo(t *testing.T) {
 	}
 }
 
+func TestRingBuffer_FindByTraceID(t *testing.T) {
+	rb := NewRingBuffer(10)
+	rb.Push(types.Event{ID: "e1", Source: types.SourceRalph, TraceID: "trace-1"})
+	rb.Push(types.Event{ID: "e2", Source: types.SourceSystem, TraceID: "trace-2"})
+	rb.Push(types.Event{ID: "e3", Source: types.SourceRalph, TraceID: "trace-1"})
+
+	results := rb.FindByTraceID("trace-1")
+	if len(results) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(results))
+	}
+	if results[0].ID != "e1" || results[1].ID != "e3" {
+		t.Fatalf("expected e1 and e3, got %s and %s", results[0].ID, results[1].ID)
+	}
+
+	results = rb.FindByTraceID("nonexistent")
+	if len(results) != 0 {
+		t.Fatalf("expected 0 events, got %d", len(results))
+	}
+}
+
 func TestRingBuffer_Ack(t *testing.T) {
 	rb := NewRingBuffer(10)
 	event := types.Event{

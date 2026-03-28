@@ -225,8 +225,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatal("missing tools array")
 	}
-	if len(tools) != 6 {
-		t.Fatalf("expected 6 tools, got %d", len(tools))
+	if len(tools) != 7 {
+		t.Fatalf("expected 7 tools, got %d", len(tools))
 	}
 
 	// Verify each tool has required fields
@@ -234,6 +234,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		"events_latest": false, "events_filter": false,
 		"events_ack": false, "report_summary": false,
 		"events_request": false, "events_await_reply": false,
+		"events_trace": false,
 	}
 	for _, raw := range tools {
 		tool := raw.(map[string]any)
@@ -253,6 +254,58 @@ func TestMCP_ToolsList(t *testing.T) {
 		if !found {
 			t.Fatalf("tool %s not found in list", name)
 		}
+	}
+}
+
+func TestDispatch_EventsTrace(t *testing.T) {
+	srv, rb := newTestServer()
+	rb.Push(types.Event{ID: "e1", Source: types.SourceRalph, Type: "task.start", Ts: time.Now(), TraceID: "trace-abc"})
+	rb.Push(types.Event{ID: "e2", Source: types.SourceSystem, Type: "error", Ts: time.Now(), TraceID: "trace-other"})
+	rb.Push(types.Event{ID: "e3", Source: types.SourceRalph, Type: "task.complete", Ts: time.Now(), TraceID: "trace-abc"})
+
+	resp := doRPC(t, srv, "events.trace", map[string]string{"trace_id": "trace-abc"})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	b, _ := json.Marshal(resp.Result)
+	var events []types.Event
+	json.Unmarshal(b, &events)
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+	if events[0].ID != "e1" || events[1].ID != "e3" {
+		t.Fatalf("expected e1 and e3, got %s and %s", events[0].ID, events[1].ID)
+	}
+}
+
+func TestDispatch_EventsTrace_MissingTraceID(t *testing.T) {
+	srv, _ := newTestServer()
+
+	resp := doRPC(t, srv, "events.trace", map[string]string{})
+	if resp.Error == nil {
+		t.Fatal("expected error for missing trace_id")
+	}
+	if resp.Error.Code != ErrCodeBadParams {
+		t.Fatalf("expected bad params error, got %d", resp.Error.Code)
+	}
+}
+
+func TestDispatch_EventsFilter_WithRepo(t *testing.T) {
+	srv, rb := newTestServer()
+	rb.Push(types.Event{ID: "e1", Source: types.SourceRalph, Ts: time.Now(), Repo: "repo-a"})
+	rb.Push(types.Event{ID: "e2", Source: types.SourceSystem, Ts: time.Now(), Repo: "repo-b"})
+
+	resp := doRPC(t, srv, "events.filter", map[string]string{"repo": "repo-a"})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	b, _ := json.Marshal(resp.Result)
+	var events []types.Event
+	json.Unmarshal(b, &events)
+	if len(events) != 1 || events[0].ID != "e1" {
+		t.Fatalf("expected 1 event (e1), got %v", events)
 	}
 }
 
