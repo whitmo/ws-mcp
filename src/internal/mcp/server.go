@@ -67,13 +67,17 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "events_filter",
-			Description: "Filter events by source (e.g. ralph, multiclaude, system)",
+			Description: "Filter events by source and/or exclude by type",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"source": map[string]any{
 						"type":        "string",
-						"description": "Event source to filter by",
+						"description": "Event source to filter by (ralph, multiclaude, system)",
+					},
+					"exclude_type": map[string]any{
+						"type":        "string",
+						"description": "Event type to exclude (e.g. agent.activity to filter noise)",
 					},
 				},
 			},
@@ -294,7 +298,8 @@ func (s *Server) handleEventsLatest(ctx context.Context, req *Request) *Response
 
 func (s *Server) handleEventsFilter(ctx context.Context, req *Request) *Response {
 	var params struct {
-		Source string `json:"source"`
+		Source      string `json:"source"`
+		ExcludeType string `json:"exclude_type"`
 	}
 	if req.Params != nil {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
@@ -302,7 +307,7 @@ func (s *Server) handleEventsFilter(ctx context.Context, req *Request) *Response
 		}
 	}
 
-	events, err := s.handler.HandleFilter(ctx, params.Source)
+	events, err := s.handler.HandleFilter(ctx, params.Source, params.ExcludeType)
 	if err != nil {
 		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
 	}
