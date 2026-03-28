@@ -225,8 +225,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatal("missing tools array")
 	}
-	if len(tools) != 6 {
-		t.Fatalf("expected 6 tools, got %d", len(tools))
+	if len(tools) != 7 {
+		t.Fatalf("expected 7 tools, got %d", len(tools))
 	}
 
 	// Verify each tool has required fields
@@ -234,6 +234,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		"events_latest": false, "events_filter": false,
 		"events_ack": false, "report_summary": false,
 		"events_request": false, "events_await_reply": false,
+		"events_trace": false,
 	}
 	for _, raw := range tools {
 		tool := raw.(map[string]any)

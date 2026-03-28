@@ -23,4 +23,11 @@ type Event struct {
 	AckedTs   *time.Time     `json:"acked_ts,omitempty"`
 	ReplyTo   string         `json:"reply_to,omitempty"`
 	InReplyTo string         `json:"in_reply_to,omitempty"`
+	// Tracing: links events into causal chains across agents
+	TraceID  string `json:"trace_id,omitempty"`
+	ParentID string `json:"parent_id,omitempty"`
+	// Cross-repo: identifies which repo an event originated from
+	Repo string `json:"repo,omitempty"`
+	// Agent identity
+	AgentID string `json:"agent_id,omitempty"`
 }

@@ -67,7 +67,7 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "events_filter",
-			Description: "Filter events by source and/or exclude by type",
+			Description: "Filter events by source, repo, and/or exclude by type",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -78,6 +78,10 @@ func toolDefs() []ToolDef {
 					"exclude_type": map[string]any{
 						"type":        "string",
 						"description": "Event type to exclude (e.g. agent.activity to filter noise)",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Filter by repo name (e.g. ws-mcp, enriched-alert)",
 					},
 				},
 			},
@@ -157,6 +161,20 @@ func toolDefs() []ToolDef {
 				"required": []string{"request_id"},
 			},
 		},
+		{
+			Name:        "events_trace",
+			Description: "Get all events in a trace — follow a causal chain across agents",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"trace_id": map[string]any{
+						"type":        "string",
+						"description": "Trace ID to look up",
+					},
+				},
+				"required": []string{"trace_id"},
+			},
+		},
 	}
 }
 
@@ -196,6 +214,8 @@ func (s *Server) Dispatch(ctx context.Context, req *Request) *Response {
 		return s.handleEventsRequest(ctx, req)
 	case "events.await_reply":
 		return s.handleEventsAwaitReply(ctx, req)
+	case "events.trace":
+		return s.handleEventsTrace(ctx, req)
 	default:
 		return &Response{
 			JSONRPC: "2.0",
@@ -253,6 +273,8 @@ func (s *Server) handleToolsCall(ctx context.Context, req *Request) *Response {
 		innerResp = s.handleEventsRequest(ctx, inner)
 	case "events_await_reply":
 		innerResp = s.handleEventsAwaitReply(ctx, inner)
+	case "events_trace":
+		innerResp = s.handleEventsTrace(ctx, inner)
 	default:
 		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeNoMethod, Message: fmt.Sprintf("unknown tool: %s", params.Name)}}
 	}
@@ -300,6 +322,7 @@ func (s *Server) handleEventsFilter(ctx context.Context, req *Request) *Response
 	var params struct {
 		Source      string `json:"source"`
 		ExcludeType string `json:"exclude_type"`
+		Repo        string `json:"repo"`
 	}
 	if req.Params != nil {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
@@ -307,7 +330,7 @@ func (s *Server) handleEventsFilter(ctx context.Context, req *Request) *Response
 		}
 	}
 
-	events, err := s.handler.HandleFilter(ctx, params.Source, params.ExcludeType)
+	events, err := s.handler.HandleFilter(ctx, params.Source, params.ExcludeType, params.Repo)
 	if err != nil {
 		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
 	}
@@ -406,6 +429,26 @@ func (s *Server) handleEventsAwaitReply(ctx context.Context, req *Request) *Resp
 		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
 	}
 	return &Response{JSONRPC: "2.0", ID: req.ID, Result: reply}
+}
+
+func (s *Server) handleEventsTrace(ctx context.Context, req *Request) *Response {
+	var params struct {
+		TraceID string `json:"trace_id"`
+	}
+	if req.Params != nil {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "invalid params"}}
+		}
+	}
+	if params.TraceID == "" {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "trace_id is required"}}
+	}
+
+	events, err := s.handler.HandleTrace(ctx, params.TraceID)
+	if err != nil {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
+	}
+	return &Response{JSONRPC: "2.0", ID: req.ID, Result: events}
 }
 
 // ServeHTTP handles JSON-RPC over HTTP POST.

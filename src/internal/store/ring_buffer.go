@@ -73,6 +73,19 @@ func (r *RingBuffer) FindByInReplyTo(requestID string) (types.Event, bool) {
 	return types.Event{}, false
 }
 
+func (r *RingBuffer) FindByTraceID(traceID string) []types.Event {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]types.Event, 0)
+	for _, e := range r.events {
+		if e.TraceID == traceID {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
 func (r *RingBuffer) Ack(id string, by string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
