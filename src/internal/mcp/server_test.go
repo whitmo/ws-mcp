@@ -225,8 +225,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatal("missing tools array")
 	}
-	if len(tools) != 6 {
-		t.Fatalf("expected 6 tools, got %d", len(tools))
+	if len(tools) != 11 {
+		t.Fatalf("expected 11 tools, got %d", len(tools))
 	}
 
 	// Verify each tool has required fields
@@ -234,6 +234,9 @@ func TestMCP_ToolsList(t *testing.T) {
 		"events_latest": false, "events_filter": false,
 		"events_ack": false, "report_summary": false,
 		"events_request": false, "events_await_reply": false,
+		"tasks_delegate": false, "tasks_accept": false,
+		"tasks_complete": false, "tasks_pending": false,
+		"tasks_status": false,
 	}
 	for _, raw := range tools {
 		tool := raw.(map[string]any)
@@ -551,5 +554,166 @@ func TestStdio_Transport(t *testing.T) {
 	json.Unmarshal([]byte(lines[1]), &resp2)
 	if resp2.Error != nil {
 		t.Fatalf("resp2 error: %v", resp2.Error)
+	}
+}
+
+func TestDispatch_TasksDelegateAcceptComplete(t *testing.T) {
+	srv, _ := newTestServer()
+
+	// Delegate
+	resp := doRPC(t, srv, "tasks.delegate", map[string]string{
+		"from_agent":  "alice",
+		"to_agent":    "bob",
+		"description": "build the widget",
+	})
+	if resp.Error != nil {
+		t.Fatalf("delegate error: %v", resp.Error)
+	}
+	b, _ := json.Marshal(resp.Result)
+	var delResult map[string]string
+	json.Unmarshal(b, &delResult)
+	taskID := delResult["task_id"]
+	if taskID == "" {
+		t.Fatal("expected task_id")
+	}
+
+	// Status should be pending
+	resp = doRPC(t, srv, "tasks.status", map[string]string{"task_id": taskID})
+	if resp.Error != nil {
+		t.Fatalf("status error: %v", resp.Error)
+	}
+	b, _ = json.Marshal(resp.Result)
+	var task types.TaskDelegation
+	json.Unmarshal(b, &task)
+	if task.Status != "pending" {
+		t.Fatalf("expected pending, got %s", task.Status)
+	}
+
+	// Pending for bob
+	resp = doRPC(t, srv, "tasks.pending", map[string]string{"agent": "bob"})
+	if resp.Error != nil {
+		t.Fatalf("pending error: %v", resp.Error)
+	}
+	b, _ = json.Marshal(resp.Result)
+	var pending []types.TaskDelegation
+	json.Unmarshal(b, &pending)
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending, got %d", len(pending))
+	}
+
+	// Accept
+	resp = doRPC(t, srv, "tasks.accept", map[string]string{"task_id": taskID})
+	if resp.Error != nil {
+		t.Fatalf("accept error: %v", resp.Error)
+	}
+
+	// Complete
+	resp = doRPC(t, srv, "tasks.complete", map[string]any{
+		"task_id": taskID,
+		"result":  map[string]any{"output": "done"},
+	})
+	if resp.Error != nil {
+		t.Fatalf("complete error: %v", resp.Error)
+	}
+
+	// Final status
+	resp = doRPC(t, srv, "tasks.status", map[string]string{"task_id": taskID})
+	if resp.Error != nil {
+		t.Fatalf("final status error: %v", resp.Error)
+	}
+	b, _ = json.Marshal(resp.Result)
+	json.Unmarshal(b, &task)
+	if task.Status != "completed" {
+		t.Fatalf("expected completed, got %s", task.Status)
+	}
+}
+
+func TestDispatch_TasksDelegate_MissingParams(t *testing.T) {
+	srv, _ := newTestServer()
+
+	resp := doRPC(t, srv, "tasks.delegate", map[string]string{
+		"from_agent": "alice",
+	})
+	if resp.Error == nil {
+		t.Fatal("expected error for missing to_agent and description")
+	}
+}
+
+func TestDispatch_TasksAccept_NotFound(t *testing.T) {
+	srv, _ := newTestServer()
+
+	resp := doRPC(t, srv, "tasks.accept", map[string]string{"task_id": "nonexistent"})
+	if resp.Error == nil {
+		t.Fatal("expected error for nonexistent task")
+	}
+}
+
+func TestDispatch_TasksPending_Filtering(t *testing.T) {
+	srv, _ := newTestServer()
+
+	// Delegate tasks to different agents
+	doRPC(t, srv, "tasks.delegate", map[string]string{
+		"from_agent": "alice", "to_agent": "bob", "description": "task for bob",
+	})
+	doRPC(t, srv, "tasks.delegate", map[string]string{
+		"from_agent": "alice", "to_agent": "charlie", "description": "task for charlie",
+	})
+
+	// bob should see 1 pending
+	resp := doRPC(t, srv, "tasks.pending", map[string]string{"agent": "bob"})
+	if resp.Error != nil {
+		t.Fatalf("pending error: %v", resp.Error)
+	}
+	b, _ := json.Marshal(resp.Result)
+	var pending []types.TaskDelegation
+	json.Unmarshal(b, &pending)
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending for bob, got %d", len(pending))
+	}
+
+	// charlie should see 1 pending
+	resp = doRPC(t, srv, "tasks.pending", map[string]string{"agent": "charlie"})
+	b, _ = json.Marshal(resp.Result)
+	json.Unmarshal(b, &pending)
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending for charlie, got %d", len(pending))
+	}
+
+	// dave should see 0 pending
+	resp = doRPC(t, srv, "tasks.pending", map[string]string{"agent": "dave"})
+	b, _ = json.Marshal(resp.Result)
+	json.Unmarshal(b, &pending)
+	if len(pending) != 0 {
+		t.Fatalf("expected 0 pending for dave, got %d", len(pending))
+	}
+}
+
+func TestMCP_ToolsCall_TasksDelegate(t *testing.T) {
+	srv, _ := newTestServer()
+
+	resp := doRPC(t, srv, "tools/call", map[string]any{
+		"name": "tasks_delegate",
+		"arguments": map[string]any{
+			"from_agent":  "alice",
+			"to_agent":    "bob",
+			"description": "test via tools/call",
+		},
+	})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	b, _ := json.Marshal(resp.Result)
+	var result map[string]any
+	json.Unmarshal(b, &result)
+	content, ok := result["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("expected content array, got %v", result)
+	}
+	item := content[0].(map[string]any)
+	var inner map[string]string
+	json.Unmarshal([]byte(item["text"].(string)), &inner)
+	if inner["task_id"] == "" {
+		t.Fatal("expected task_id in response")
 	}
 }

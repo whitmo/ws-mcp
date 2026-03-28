@@ -11,11 +11,17 @@ import (
 )
 
 type Handler struct {
-	store *store.RingBuffer
+	store     *store.RingBuffer
+	taskStore *store.TaskStore
 }
 
 func NewHandler(s *store.RingBuffer) *Handler {
-	return &Handler{store: s}
+	return &Handler{store: s, taskStore: store.NewTaskStore()}
+}
+
+// NewHandlerWithTaskStore creates a Handler with an explicit TaskStore (for testing).
+func NewHandlerWithTaskStore(s *store.RingBuffer, ts *store.TaskStore) *Handler {
+	return &Handler{store: s, taskStore: ts}
 }
 
 func (h *Handler) HandleLatest(ctx context.Context, limit int) ([]types.Event, error) {
@@ -144,4 +150,69 @@ func (h *Handler) HandleSummary(ctx context.Context, windowMinutes int) (*Summar
 	}
 
 	return result, nil
+}
+
+// HandleTaskDelegate creates a new task delegation.
+func (h *Handler) HandleTaskDelegate(ctx context.Context, fromAgent, toAgent, description string) (string, error) {
+	if fromAgent == "" {
+		return "", errors.New("from_agent is required")
+	}
+	if toAgent == "" {
+		return "", errors.New("to_agent is required")
+	}
+	if description == "" {
+		return "", errors.New("description is required")
+	}
+
+	id := fmt.Sprintf("task-%d", time.Now().UnixNano())
+	task := &types.TaskDelegation{
+		ID:          id,
+		FromAgent:   fromAgent,
+		ToAgent:     toAgent,
+		Description: description,
+		Status:      types.TaskPending,
+		CreatedAt:   time.Now(),
+	}
+	h.taskStore.Put(task)
+	return id, nil
+}
+
+// HandleTaskAccept marks a task as accepted.
+func (h *Handler) HandleTaskAccept(ctx context.Context, taskID string) error {
+	if taskID == "" {
+		return errors.New("task_id is required")
+	}
+	return h.taskStore.Accept(taskID)
+}
+
+// HandleTaskComplete marks a task as completed with a result.
+func (h *Handler) HandleTaskComplete(ctx context.Context, taskID string, result map[string]any) error {
+	if taskID == "" {
+		return errors.New("task_id is required")
+	}
+	return h.taskStore.Complete(taskID, result)
+}
+
+// HandleTaskPending returns pending tasks for the given agent.
+func (h *Handler) HandleTaskPending(ctx context.Context, agent string) ([]*types.TaskDelegation, error) {
+	if agent == "" {
+		return nil, errors.New("agent is required")
+	}
+	tasks := h.taskStore.PendingFor(agent)
+	if tasks == nil {
+		tasks = []*types.TaskDelegation{}
+	}
+	return tasks, nil
+}
+
+// HandleTaskStatus returns the status of a task by ID.
+func (h *Handler) HandleTaskStatus(ctx context.Context, taskID string) (*types.TaskDelegation, error) {
+	if taskID == "" {
+		return nil, errors.New("task_id is required")
+	}
+	task, ok := h.taskStore.Get(taskID)
+	if !ok {
+		return nil, fmt.Errorf("task %q not found", taskID)
+	}
+	return task, nil
 }

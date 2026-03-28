@@ -157,6 +157,88 @@ func toolDefs() []ToolDef {
 				"required": []string{"request_id"},
 			},
 		},
+		{
+			Name:        "tasks_delegate",
+			Description: "Delegate a task to another agent",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"from_agent": map[string]any{
+						"type":        "string",
+						"description": "Agent delegating the task",
+					},
+					"to_agent": map[string]any{
+						"type":        "string",
+						"description": "Agent to delegate the task to",
+					},
+					"description": map[string]any{
+						"type":        "string",
+						"description": "Description of the task",
+					},
+				},
+				"required": []string{"from_agent", "to_agent", "description"},
+			},
+		},
+		{
+			Name:        "tasks_accept",
+			Description: "Accept a delegated task",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"task_id": map[string]any{
+						"type":        "string",
+						"description": "ID of the task to accept",
+					},
+				},
+				"required": []string{"task_id"},
+			},
+		},
+		{
+			Name:        "tasks_complete",
+			Description: "Complete a delegated task with a result",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"task_id": map[string]any{
+						"type":        "string",
+						"description": "ID of the task to complete",
+					},
+					"result": map[string]any{
+						"type":        "object",
+						"description": "Result payload for the completed task",
+					},
+				},
+				"required": []string{"task_id"},
+			},
+		},
+		{
+			Name:        "tasks_pending",
+			Description: "List tasks delegated to the calling agent that are pending",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"agent": map[string]any{
+						"type":        "string",
+						"description": "Agent name to check pending tasks for",
+					},
+				},
+				"required": []string{"agent"},
+			},
+		},
+		{
+			Name:        "tasks_status",
+			Description: "Check the status of a delegated task by ID",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"task_id": map[string]any{
+						"type":        "string",
+						"description": "ID of the task to check",
+					},
+				},
+				"required": []string{"task_id"},
+			},
+		},
 	}
 }
 
@@ -196,6 +278,16 @@ func (s *Server) Dispatch(ctx context.Context, req *Request) *Response {
 		return s.handleEventsRequest(ctx, req)
 	case "events.await_reply":
 		return s.handleEventsAwaitReply(ctx, req)
+	case "tasks.delegate":
+		return s.handleTasksDelegate(ctx, req)
+	case "tasks.accept":
+		return s.handleTasksAccept(ctx, req)
+	case "tasks.complete":
+		return s.handleTasksComplete(ctx, req)
+	case "tasks.pending":
+		return s.handleTasksPending(ctx, req)
+	case "tasks.status":
+		return s.handleTasksStatus(ctx, req)
 	default:
 		return &Response{
 			JSONRPC: "2.0",
@@ -253,6 +345,16 @@ func (s *Server) handleToolsCall(ctx context.Context, req *Request) *Response {
 		innerResp = s.handleEventsRequest(ctx, inner)
 	case "events_await_reply":
 		innerResp = s.handleEventsAwaitReply(ctx, inner)
+	case "tasks_delegate":
+		innerResp = s.handleTasksDelegate(ctx, inner)
+	case "tasks_accept":
+		innerResp = s.handleTasksAccept(ctx, inner)
+	case "tasks_complete":
+		innerResp = s.handleTasksComplete(ctx, inner)
+	case "tasks_pending":
+		innerResp = s.handleTasksPending(ctx, inner)
+	case "tasks_status":
+		innerResp = s.handleTasksStatus(ctx, inner)
 	default:
 		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeNoMethod, Message: fmt.Sprintf("unknown tool: %s", params.Name)}}
 	}
@@ -406,6 +508,104 @@ func (s *Server) handleEventsAwaitReply(ctx context.Context, req *Request) *Resp
 		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
 	}
 	return &Response{JSONRPC: "2.0", ID: req.ID, Result: reply}
+}
+
+func (s *Server) handleTasksDelegate(ctx context.Context, req *Request) *Response {
+	var params struct {
+		FromAgent   string `json:"from_agent"`
+		ToAgent     string `json:"to_agent"`
+		Description string `json:"description"`
+	}
+	if req.Params != nil {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "invalid params"}}
+		}
+	}
+
+	taskID, err := s.handler.HandleTaskDelegate(ctx, params.FromAgent, params.ToAgent, params.Description)
+	if err != nil {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: err.Error()}}
+	}
+	return &Response{JSONRPC: "2.0", ID: req.ID, Result: map[string]string{"task_id": taskID}}
+}
+
+func (s *Server) handleTasksAccept(ctx context.Context, req *Request) *Response {
+	var params struct {
+		TaskID string `json:"task_id"`
+	}
+	if req.Params != nil {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "invalid params"}}
+		}
+	}
+	if params.TaskID == "" {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "task_id is required"}}
+	}
+
+	if err := s.handler.HandleTaskAccept(ctx, params.TaskID); err != nil {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
+	}
+	return &Response{JSONRPC: "2.0", ID: req.ID, Result: map[string]string{"status": "accepted"}}
+}
+
+func (s *Server) handleTasksComplete(ctx context.Context, req *Request) *Response {
+	var params struct {
+		TaskID string         `json:"task_id"`
+		Result map[string]any `json:"result"`
+	}
+	if req.Params != nil {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "invalid params"}}
+		}
+	}
+	if params.TaskID == "" {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "task_id is required"}}
+	}
+
+	if err := s.handler.HandleTaskComplete(ctx, params.TaskID, params.Result); err != nil {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
+	}
+	return &Response{JSONRPC: "2.0", ID: req.ID, Result: map[string]string{"status": "completed"}}
+}
+
+func (s *Server) handleTasksPending(ctx context.Context, req *Request) *Response {
+	var params struct {
+		Agent string `json:"agent"`
+	}
+	if req.Params != nil {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "invalid params"}}
+		}
+	}
+	if params.Agent == "" {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "agent is required"}}
+	}
+
+	tasks, err := s.handler.HandleTaskPending(ctx, params.Agent)
+	if err != nil {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
+	}
+	return &Response{JSONRPC: "2.0", ID: req.ID, Result: tasks}
+}
+
+func (s *Server) handleTasksStatus(ctx context.Context, req *Request) *Response {
+	var params struct {
+		TaskID string `json:"task_id"`
+	}
+	if req.Params != nil {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "invalid params"}}
+		}
+	}
+	if params.TaskID == "" {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeBadParams, Message: "task_id is required"}}
+	}
+
+	task, err := s.handler.HandleTaskStatus(ctx, params.TaskID)
+	if err != nil {
+		return &Response{JSONRPC: "2.0", ID: req.ID, Error: &Error{Code: ErrCodeInternal, Message: err.Error()}}
+	}
+	return &Response{JSONRPC: "2.0", ID: req.ID, Result: task}
 }
 
 // ServeHTTP handles JSON-RPC over HTTP POST.
