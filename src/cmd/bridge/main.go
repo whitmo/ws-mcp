@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/whitmo/ws-mcp/src/internal/hub"
 	"github.com/whitmo/ws-mcp/src/internal/mcp"
@@ -58,13 +59,29 @@ func main() {
 	mcpServer := mcp.NewServer(mcpHandler)
 
 	if *stdio {
-		fmt.Fprintln(os.Stderr, "MCP server running on stdio")
 		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
 			<-stop
 			fileStore.Close()
 			cancel()
 		}()
+
+		// Spoke mode: try to proxy through a running hub
+		hubURL := "http://localhost:8080/rpc"
+		if env := os.Getenv("WS_MCP_HUB"); env != "" {
+			hubURL = env
+		}
+		proxy := mcp.NewProxyClient(hubURL)
+		if proxy.Ping(400 * time.Millisecond) {
+			fmt.Fprintln(os.Stderr, "Hub detected at", hubURL, "— running as spoke")
+			if err := mcp.ServeSpoke(ctx, proxy, os.Stdin, os.Stdout); err != nil {
+				log.Fatalf("Spoke error: %v", err)
+			}
+			return
+		}
+
+		// No hub — standalone mode with local ring buffer
+		fmt.Fprintln(os.Stderr, "No hub detected — running standalone on stdio")
 		if err := mcpServer.ServeStdio(ctx); err != nil {
 			log.Fatalf("Stdio server error: %v", err)
 		}
